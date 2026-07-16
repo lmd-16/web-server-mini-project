@@ -40,11 +40,23 @@ class WebServer:
         if not os.path.exists(self.www_dir):
             os.makedirs(self.www_dir)
             print(f"Created directory: {self.www_dir}")
-
-            index_path = os.path.join(self.www_dir, 'index.html')
-            if not os.path.exists(index_path):
-                print("Warning: index.html not found in www directory")
-                print("Create www/index.html for the homepage")
+            print("Add the html files to the www directory")
+            print("   - index.html (homepage)")
+            print("   - error_pages/404.html")
+            print("   - error_pages/505.html")
+            return
+        error_dir = os.path.join(self.www_dir, 'error_pages')
+        if not os.path.exists(error_dir):
+            os.makedirs(error_dir)
+            print(f"Created directory: {error_dir}")
+            print("Please add error HTML files:")
+            print("  - error_pages/404.html")
+            print("  - error_pages/505.html")            
+        
+        index_path = os.path.join(self.www_dir, 'index.html')
+        if not os.path.exists(index_path):
+            print("Warning: index.html not found in www directory")
+            print("Create www/index.html for the homepage")
             
 
     def handle_client(self, client_socket, client_address):
@@ -176,6 +188,56 @@ class WebServer:
 
         self.build_http_response(client_socket, status_code, status_message, headers, body)
 
+    def send_error_from_file(self, client_socket, status_code, status_message):
+        body = self.read_error_page(status_code)
+        if body is None:
+            body = ""
+        headers = {
+            'Content-Type': 'text/html' if body else 'text/plain',
+            'Content-Length': str(len(body)),
+            'Connection': 'close'
+        }
+        self.build_http_response(client_socket, status_code, status_message, headers, body)
+    
+    def build_http_response(client_socket, status_code, status_message, headers=None, body=""):
+        if headers is None:
+            headers = {}
+
+            if 'Server' not in headers:
+                headers['Server'] = 'WebServer/1.0'
+            if 'Date' not in headers: 
+                headers['Date'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+
+            response = f"HTTP/1.1 {status_code} {status_message}\r\n"
+            for key, value in headers.items():
+                response += f"{key}: {value}\r\n"
+            response += "\r\n"
+
+            client_socket.send(response.encode('utf-8'))
+            if body: 
+                client_socket.send(body.encode('utf-8'))
+
+    
     def send_file_response(self, client_socket, file_path):
+        try:
+            with open(file_path, 'rb') as file:
+                content = file.read()
+            content_type = self.get_content_type(file_path)
 
+            headers = {
+                'Content-Type': content-type, 
+                'Content-Length': str(len(content)),
+                'Last-Modified': datetime.datetime.fromtimestamp(
+                    os.path.getmtime(file_path)).strftime('%a, %d %b %Y %H:%M:%S GMT'),
+                'Connection': 'close'
+            }
+            response = "HTTP/1.1 200 OK\r\n"
+            for key, value in headers.items():
+                response += f"{key}: {value}\r\n"
+            response += "\r\n"
+            client_socket.send(response.endcode('utf-8'))
+            client_socket.send(content)
 
+        except Exception as e: 
+            print(f"Error serving file {file_path}: {e}")
+            self.send_server_error(client_socket)
