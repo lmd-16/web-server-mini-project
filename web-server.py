@@ -11,6 +11,7 @@ class WebServer:
 
         self.www_dir = www_dir
         self.server_socket = None
+        self.ensure_www_directory()
 
     def start_server(self):
         try:
@@ -31,7 +32,7 @@ class WebServer:
         except KeyboardInterrupt:
             print("\nShutting down server...")
         except Exception as e: 
-            print(f"Server error:"{e})
+            print(f"Server error:{e}")
         finally:
             if self.server_socket:
                 self.server_socket.close()
@@ -104,9 +105,9 @@ class WebServer:
                 key, value = lines[i].split(': ',1)
                 headers[key] = value 
 
-            body = ''
-            if header_end + 1 < len(lines):
-                body = '\r\n'.join(lines[header_end + 1:])
+        body = ''
+        if header_end + 1 < len(lines):
+            body = '\r\n'.join(lines[header_end + 1:])
             
             return method, path, version, headers, body
 
@@ -165,7 +166,8 @@ class WebServer:
             'Content-Length': str(len(body)),
             'Connection': 'close'
         }
-
+        self.build_http_response(client_socket, status_code, status_message, headers, body)
+             
     def handle_505(self, client_socket):
         status_code = 505
         status_message = "HTTP Version Not Supported"
@@ -199,23 +201,23 @@ class WebServer:
         }
         self.build_http_response(client_socket, status_code, status_message, headers, body)
     
-    def build_http_response(client_socket, status_code, status_message, headers=None, body=""):
+    def build_http_response(self, client_socket, status_code, status_message, headers=None, body=""):
         if headers is None:
             headers = {}
 
-            if 'Server' not in headers:
-                headers['Server'] = 'WebServer/1.0'
-            if 'Date' not in headers: 
-                headers['Date'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+        if 'Server' not in headers:
+            headers['Server'] = 'WebServer/1.0'
+        if 'Date' not in headers: 
+            headers['Date'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
 
-            response = f"HTTP/1.1 {status_code} {status_message}\r\n"
-            for key, value in headers.items():
-                response += f"{key}: {value}\r\n"
-            response += "\r\n"
+        response = f"HTTP/1.1 {status_code} {status_message}\r\n"
+        for key, value in headers.items():
+            response += f"{key}: {value}\r\n"
+        response += "\r\n"
 
-            client_socket.send(response.encode('utf-8'))
-            if body: 
-                client_socket.send(body.encode('utf-8'))
+        client_socket.send(response.encode('utf-8'))
+        if body: 
+            client_socket.send(body.encode('utf-8'))
 
     
     def send_file_response(self, client_socket, file_path):
@@ -225,7 +227,7 @@ class WebServer:
             content_type = self.get_content_type(file_path)
 
             headers = {
-                'Content-Type': content-type, 
+                'Content-Type': content_type, 
                 'Content-Length': str(len(content)),
                 'Last-Modified': datetime.datetime.fromtimestamp(
                     os.path.getmtime(file_path)).strftime('%a, %d %b %Y %H:%M:%S GMT'),
@@ -235,30 +237,31 @@ class WebServer:
             for key, value in headers.items():
                 response += f"{key}: {value}\r\n"
             response += "\r\n"
-            client_socket.send(response.endcode('utf-8'))
+
+            client_socket.send(response.encode('utf-8'))
             client_socket.send(content)
 
         except Exception as e: 
             print(f"Error serving file {file_path}: {e}")
             self.send_server_error(client_socket)
 
-def get_content_type(self, file_path):
-    ext = os.path.splitext(file_path)[1].lower()
-    content_types = {
-            '.html': 'text/html',
-            '.htm': 'text/html',
-            '.css': 'text/css',
-            '.js': 'application/javascript',
-            '.json': 'application/json',
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.gif': 'image/gif',
-            '.txt': 'text/plain',
-            '.xml': 'application/xml',
-            '.pdf': 'application/pdf'    
+    def get_content_type(self, file_path):
+        ext = os.path.splitext(file_path)[1].lower()
+        content_types = {
+                '.html': 'text/html',
+                '.htm': 'text/html',
+                '.css': 'text/css',
+                '.js': 'application/javascript',
+                '.json': 'application/json',
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.txt': 'text/plain',
+                '.xml': 'application/xml',
+                '.pdf': 'application/pdf'    
         }
-    return content_types.get(ext, 'application/octet-stream')
+        return content_types.get(ext, 'application/octet-stream')
 
 if __name__ == "__main__":
     server = WebServer()
