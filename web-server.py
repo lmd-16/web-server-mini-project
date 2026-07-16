@@ -35,12 +35,16 @@ class WebServer:
         finally:
             if self.server_socket:
                 self.server_socket.close()
+
     def ensure_www_directory(self):
         if not os.path.exists(self.www_dir):
             os.makedirs(self.www_dir)
             print(f"Created directory: {self.www_dir}")
 
             index_path = os.path.join(self.www_dir, 'index.html')
+            if not os.path.exists(index_path):
+                print("Warning: index.html not found in www directory")
+                print("Create www/index.html for the homepage")
             
 
     def handle_client(self, client_socket, client_address):
@@ -104,33 +108,66 @@ class WebServer:
             self.handle_404(client_socket)
             return
         
+        if os.path.isdir(file_path):
+            index_path = os.path.join(file_path, 'index.html')
+            if os.path.exists(index_path):
+                file_path = index_path
+            else:
+                self.handle_404(client_socket)
+                return
+        self.send_file_response(client_socket, file_path)
+
+    def get_error_page(self, error_code):
+        error_file = os.path.join(self.www_dir, 'error_pages', f'{error_code}.html')
+        return error_file
+    
+    def read_error_page(self, error_code):
+        error_file = self.get_error_page(error_code)
+
+        try:
+            if os.path.exists(error_file):
+                with open(error_file, 'r', encoding='utf-8') as f:
+                    return f.read()
+                
+        except Exception as e: 
+            print(f"Error reading error page {error_file}: {e}")
+
+        return None
+
     def handle_404(self, client_socket):
         status_code = 404 
         status_message = "Not Found"
-        error_file = os.path.join(self.www_dir, 'error_pages', '404.html')
-        if os.path.exists(error_file):
-            with open(error_file, 'rb') as f: 
-                body = f.read().decode('utf-8')
-        else:
-            
+        body = self.read_error_page(404)
+
+        if body is None:
+            headers = {
+                'Content-Type': 'text/plain',
+                'Content-Length': '0',
+                'Connection': 'close'
+            }
+            self.build_http_response(client_socket, status_code, status_message, headers, body)
+            return 
+        
         headers = {
             'Content-Type': 'text/html',
             'Content-Length': str(len(body)),
             'Connection': 'close'
         }
-        self.build_http_response(client_socket, status_code, status_message, headers, body)
 
-    def handle_505(self):
+    def handle_505(self, client_socket):
         status_code = 505
         status_message = "HTTP Version Not Supported"
+        body = self.read_error_page(505)
 
-        error_file = os.path.join(self.www_dir, 'error_pages', '505.html')
-
-        if os.path.exists(error_file):
-            with open(error_file, 'rb') as f: 
-                body = f.read().decode('utf-8')
-        else:
-
+        if body is None:
+            headers = {
+                'Content-Type': 'text/plain',
+                'Content-Length': '0',
+                'Connection': 'close'
+            }
+            self.build_http_response(client_socket, status_code, status_message, headers, body)
+            return
+        
         headers = {
             'Content-Type': 'text/html',
             'Content-Length': str(len(body)),
@@ -140,5 +177,5 @@ class WebServer:
         self.build_http_response(client_socket, status_code, status_message, headers, body)
 
     def send_file_response(self, client_socket, file_path):
-        
+
 
