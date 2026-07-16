@@ -104,11 +104,41 @@ class WebServer:
             self.handle_404(client_socket)
             return
         
-    def handle_404(self):
-        
-
+    def handle_404(self, client_socket):
+        status_code = 404 
+        status_message = "Not Found"
+        error_file = os.path.join(self.www_dir, 'error_pages', '404.html')
+        if os.path.exists(error_file):
+            with open(error_file, 'rb') as f: 
+                body = f.read().decode('utf-8')
+        else:
+            
+        headers = {
+            'Content-Type': 'text/html',
+            'Content-Length': str(len(body)),
+            'Connection': 'close'
+        }
+        self.build_http_response(client_socket, status_code, status_message, headers, body)
 
     def handle_505(self):
+        status_code = 505
+        status_message = "HTTP Version Not Supported"
+
+        error_file = os.path.join(self.www_dir, 'error_pages', '505.html')
+
+        if os.path.exists(error_file):
+            with open(error_file, 'rb') as f: 
+                body = f.read().decode('utf-8')
+        else:
+
+        headers = {
+            'Content-Type': 'text/html',
+            'Content-Length': str(len(body)),
+            'Connection': 'close'
+        }
+
+        self.build_http_response(client_socket, status_code, status_message, headers, body)
 
     def send_file_response(self, client_socket, file_path):
+        
 
