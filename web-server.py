@@ -241,3 +241,25 @@ class WebServer:
         except Exception as e: 
             print(f"Error serving file {file_path}: {e}")
             self.send_server_error(client_socket)
+
+def get_content_type(self, file_path):
+    ext = os.path.splitext(file_path)[1].lower()
+    content_types = {
+            '.html': 'text/html',
+            '.htm': 'text/html',
+            '.css': 'text/css',
+            '.js': 'application/javascript',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.txt': 'text/plain',
+            '.xml': 'application/xml',
+            '.pdf': 'application/pdf'    
+        }
+    return content_types.get(ext, 'application/octet-stream')
+
+if __name__ == "__main__":
+    server = WebServer()
+    server.start_server()
