@@ -3,9 +3,10 @@ import os
 import sys 
 import re 
 import datetime 
+from email.utils import parsedate_to_datetime
 
 class WebServer: 
-    def __init__(self, host='localhost', port=8080, www_dir='./www'):
+    def __init__(self, host='localhost', port=8080, www_dir='./public'):
         self.host = host
         self.port = port
 
@@ -32,7 +33,7 @@ class WebServer:
         except KeyboardInterrupt:
             print("\nShutting down server...")
         except Exception as e: 
-            print(f"Server error:{e}")
+            print(f"Server error: {e}")
         finally:
             if self.server_socket:
                 self.server_socket.close()
@@ -41,25 +42,10 @@ class WebServer:
         if not os.path.exists(self.www_dir):
             os.makedirs(self.www_dir)
             print(f"Created directory: {self.www_dir}")
-            print("Add the html files to the www directory")
-            print("   - index.html (homepage)")
-            print("   - error_pages/404.html")
-            print("   - error_pages/505.html")
-            return
-        error_dir = os.path.join(self.www_dir, 'error_pages')
-        if not os.path.exists(error_dir):
-            os.makedirs(error_dir)
-            print(f"Created directory: {error_dir}")
-            print("Please add error HTML files:")
-            print("  - error_pages/404.html")
-            print("  - error_pages/505.html")            
-        
-        index_path = os.path.join(self.www_dir, 'index.html')
-        if not os.path.exists(index_path):
-            print("Warning: index.html not found in www directory")
-            print("Create www/index.html for the homepage")
-            
 
+            # index_path = os.path.join(self.www_dir, 'index.html')
+        
+            
     def handle_client(self, client_socket, client_address):
         try:
             raw_data = client_socket.recv(4096).decode('utf-8', errors='ignore')
@@ -108,8 +94,8 @@ class WebServer:
         body = ''
         if header_end + 1 < len(lines):
             body = '\r\n'.join(lines[header_end + 1:])
-            
-            return method, path, version, headers, body
+        
+        return method, path, version, headers, body
 
     def process_request(self,client_socket, method, path, version, headers, body):
         if path == '/':
@@ -117,71 +103,56 @@ class WebServer:
         else: 
             file_path = os.path.join(self.www_dir, path[1:])
 
+        # 404 error
         if not os.path.exists(file_path):
             self.handle_404(client_socket)
             return
         
-        if os.path.isdir(file_path):
-            index_path = os.path.join(file_path, 'index.html')
-            if os.path.exists(index_path):
-                file_path = index_path
-            else:
-                self.handle_404(client_socket)
+        # 403 error
+        if not os.access(file_path, os.R_OK):
+            self.handle_403(client_socket)
+            return
+        
+        # handle here for 304 request
+        if 'If-Modified-Since' in headers:
+            modified_time = os.path.getmtime(file_path)
+            client_time = parsedate_to_datetime(headers['If-Modified-Since']).timestamp()
+
+            if modified_time <= client_time:
+                self.handle_304(client_socket)
                 return
+            
+        # all good - 200 OK
         self.send_file_response(client_socket, file_path)
-
-    def get_error_page(self, error_code):
-        error_file = os.path.join(self.www_dir, 'error_pages', f'{error_code}.html')
-        return error_file
-    
-    def read_error_page(self, error_code):
-        error_file = self.get_error_page(error_code)
-
-        try:
-            if os.path.exists(error_file):
-                with open(error_file, 'r', encoding='utf-8') as f:
-                    return f.read()
-                
-        except Exception as e: 
-            print(f"Error reading error page {error_file}: {e}")
-
-        return None
-
+        
     def handle_404(self, client_socket):
         status_code = 404 
         status_message = "Not Found"
-        body = self.read_error_page(404)
-
-        if body is None:
-            headers = {
-                'Content-Type': 'text/plain',
-                'Content-Length': '0',
-                'Connection': 'close'
-            }
-            self.build_http_response(client_socket, status_code, status_message, headers, body)
-            return 
-        
+        error_file = os.path.join(self.www_dir, 'error_pages', '404.html')
+        if os.path.exists(error_file):
+            with open(error_file, 'rb') as f: 
+                body = f.read().decode('utf-8')
+        # else:
+            
         headers = {
             'Content-Type': 'text/html',
             'Content-Length': str(len(body)),
             'Connection': 'close'
         }
         self.build_http_response(client_socket, status_code, status_message, headers, body)
-             
+
     def handle_505(self, client_socket):
         status_code = 505
         status_message = "HTTP Version Not Supported"
         body = self.read_error_page(505)
 
-        if body is None:
-            headers = {
-                'Content-Type': 'text/plain',
-                'Content-Length': '0',
-                'Connection': 'close'
-            }
-            self.build_http_response(client_socket, status_code, status_message, headers, body)
-            return
-        
+        error_file = os.path.join(self.www_dir, 'error_pages', '505.html')
+
+        if os.path.exists(error_file):
+            with open(error_file, 'rb') as f: 
+                body = f.read().decode('utf-8')
+        # else:
+
         headers = {
             'Content-Type': 'text/html',
             'Content-Length': str(len(body)),
@@ -190,79 +161,62 @@ class WebServer:
 
         self.build_http_response(client_socket, status_code, status_message, headers, body)
 
-    def send_error_from_file(self, client_socket, status_code, status_message):
-        body = self.read_error_page(status_code)
-        if body is None:
-            body = ""
+    def handle_403(self, client_socket):
+        status_code = 403
+        status_message = "Forbidden"
+
+        error_file = os.path.join(self.www_dir, 'error_pages', '403.html')
+
+        if os.path.exists(error_file):
+            with open(error_file, 'rb') as f: 
+                body = f.read().decode('utf-8')
+        else:
+            body = "<h1>403 Forbidden</h1>"
+
         headers = {
-            'Content-Type': 'text/html' if body else 'text/plain',
+            'Content-Type': 'text/html',
             'Content-Length': str(len(body)),
             'Connection': 'close'
         }
+
         self.build_http_response(client_socket, status_code, status_message, headers, body)
+
+    def handle_304(self, client_socket):
+
+        status_code = 304
+        status_message = "Not Modified"
+
+        headers = {
+            'Connection': 'close'
+        }
+
+        self.build_http_response(client_socket, status_code, status_message, headers, "")
     
-    def build_http_response(self, client_socket, status_code, status_message, headers=None, body=""):
-        if headers is None:
-            headers = {}
+    def send_file_response(self, client_socket, file_path):
+        status_code = 200
+        status_message = "OK"
 
-        if 'Server' not in headers:
-            headers['Server'] = 'WebServer/1.0'
-        if 'Date' not in headers: 
-            headers['Date'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+        with open(file_path, 'rb') as f:
+            body = f.read().decode("utf-8")
 
+        headers = {
+            'Content-Type': 'text/html',
+            'Content-Length': str(len(body)),
+            'Connection': 'close'
+        }
+
+        self.build_http_response(client_socket, status_code, status_message, headers, body)
+
+    def build_http_response(self, client_socket, status_code, status_message, headers, body):
         response = f"HTTP/1.1 {status_code} {status_message}\r\n"
         for key, value in headers.items():
             response += f"{key}: {value}\r\n"
         response += "\r\n"
+        
+        response += body
 
         client_socket.send(response.encode('utf-8'))
-        if body: 
-            client_socket.send(body.encode('utf-8'))
-
     
-    def send_file_response(self, client_socket, file_path):
-        try:
-            with open(file_path, 'rb') as file:
-                content = file.read()
-            content_type = self.get_content_type(file_path)
-
-            headers = {
-                'Content-Type': content_type, 
-                'Content-Length': str(len(content)),
-                'Last-Modified': datetime.datetime.fromtimestamp(
-                    os.path.getmtime(file_path)).strftime('%a, %d %b %Y %H:%M:%S GMT'),
-                'Connection': 'close'
-            }
-            response = "HTTP/1.1 200 OK\r\n"
-            for key, value in headers.items():
-                response += f"{key}: {value}\r\n"
-            response += "\r\n"
-
-            client_socket.send(response.encode('utf-8'))
-            client_socket.send(content)
-
-        except Exception as e: 
-            print(f"Error serving file {file_path}: {e}")
-            self.send_server_error(client_socket)
-
-    def get_content_type(self, file_path):
-        ext = os.path.splitext(file_path)[1].lower()
-        content_types = {
-                '.html': 'text/html',
-                '.htm': 'text/html',
-                '.css': 'text/css',
-                '.js': 'application/javascript',
-                '.json': 'application/json',
-                '.png': 'image/png',
-                '.jpg': 'image/jpeg',
-                '.jpeg': 'image/jpeg',
-                '.gif': 'image/gif',
-                '.txt': 'text/plain',
-                '.xml': 'application/xml',
-                '.pdf': 'application/pdf'    
-        }
-        return content_types.get(ext, 'application/octet-stream')
-
 if __name__ == "__main__":
     server = WebServer()
     server.start_server()
