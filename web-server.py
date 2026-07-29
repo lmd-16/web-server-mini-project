@@ -12,6 +12,7 @@ class WebServer:
 
         self.www_dir = www_dir
         self.server_socket = None
+        self.ensure_www_directory()
 
     def start_server(self):
         try:
@@ -143,6 +144,7 @@ class WebServer:
     def handle_505(self, client_socket):
         status_code = 505
         status_message = "HTTP Version Not Supported"
+        body = self.read_error_page(505)
 
         error_file = os.path.join(self.www_dir, 'error_pages', '505.html')
 
