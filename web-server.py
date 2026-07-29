@@ -218,5 +218,5 @@ class WebServer:
         client_socket.send(response.encode('utf-8'))
     
 if __name__ == "__main__":
-    server = WebServer()
+    server = WebServer(www_dir='./public')
     server.start_server()
