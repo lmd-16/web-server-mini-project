@@ -3,6 +3,8 @@ import os
 import sys 
 import re 
 import datetime 
+import threading
+import time
 from email.utils import parsedate_to_datetime
 
 class WebServer: 
@@ -12,6 +14,8 @@ class WebServer:
 
         self.www_dir = www_dir
         self.server_socket = None
+        self.CHUNK_SIZE = 8192
+        self.USE_CHUNKED_THRESHOLD = 1024 * 100 #chunk threshold is 100KB
         self.ensure_www_directory()
 
     def start_server(self):
@@ -23,10 +27,21 @@ class WebServer:
 
             print(f"Server is listening on {self.host}:{self.port}")
             print(f"Serving files from {self.www_dir}")
+            print(f"Multi-threading: ENABLED (one thread per client)")
+            print(f"Chunked transfer: ENABLED (files > {self.USE_CHUNKED_THRESHOLD/1024:.1f}KB)")
+            print(f"Chunk size: {self.CHUNK_SIZE} bytes")
 
             while True:
                 client_socket, client_address = self.server_socket.accept()
                 print(f"Connection from {client_address}")
+
+                client_thread = threading.Thread( #thread created for each client
+                    target = self.handle_client,
+                    args = (client_socket, client_address)
+                )
+                client_thread.daemon = True
+                client_thread.start()
+                print(f"Thread started for {client_address} (Active threads: {threading.active_count()})")
 
                 self.handle_client(client_socket, client_address)
 
