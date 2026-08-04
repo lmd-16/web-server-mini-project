@@ -80,7 +80,10 @@ class WebServer:
         except Exception as e: 
             print(f"Error handling client:{e}")
         finally: 
-            client_socket.close()
+            try:
+                client_socket.close()
+            except:
+                pass
             
     def parse_http_request(self, raw_data):
         lines = raw_data.split('\r\n')
@@ -212,25 +215,74 @@ class WebServer:
         status_message = "OK"
 
         with open(file_path, 'rb') as f:
-            body = f.read().decode("utf-8")
+            body = f.read()
+
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == '.html' or ext == '.htm':
+            content_type = 'text/html'
+        elif ext == '.css':
+            content_type = 'text/css'
+        elif ext == '.js':
+            content_type = 'application/javascript'
+        elif ext == '.png':
+            content_type = 'image/png'
+        elif ext == '.jpg' or ext == '.jpeg':
+            content_type = 'image/jpeg'
+        elif ext == '.gif':
+            content_type = 'image/gif'
+        elif ext == '.txt':
+            content_type = 'text/plain'
+        else:
+            content_type = 'application/octet-stream'        
+
 
         headers = {
-            'Content-Type': 'text/html',
+            'Content-Type': content_type,
             'Content-Length': str(len(body)),
             'Connection': 'close'
         }
 
         self.build_http_response(client_socket, status_code, status_message, headers, body)
 
-    def build_http_response(self, client_socket, status_code, status_message, headers, body):
+    def send_file_chunked(self, client_socket, file_path, file_handle):
+        chunk_size = 8192 #8KB chunks
+        try:
+            while True:
+                chunk = file_handle.read(chunk_size)
+                if not chunk:
+                    break
+                client_socket.send(f"{len(chunk):X}\r\n".encode())
+                client_socket.send(chunk)
+                client_socket.send(b'\r\n')
+            client_socket.send(b'0\r\n\r\n')
+            return True
+        except Exception as e:
+            print(f"Error sending chunked file {file_path}: {e}")
+            return False
+
+
+    def build_http_response(self, client_socket, status_code, status_message, headers, body=""):
         response = f"HTTP/1.1 {status_code} {status_message}\r\n"
+        if 'Server' not in headers:
+            headers['Server'] = 'WebServer/1.0'
+        if 'Date' not in headers:
+            headers['Date'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
         for key, value in headers.items():
             response += f"{key}: {value}\r\n"
         response += "\r\n"
-        
-        response += body
+        try:
+            client_socket.send(response.encode('utf-8'))
 
-        client_socket.send(response.encode('utf-8'))
+            if body: 
+                if isinstance(body,bytes):
+                    client_socket.send(body)
+                else:
+                    client_socket.send(body.encode('utf-8'))
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as e:
+            print(f"Error sending repsonse:{e}")
+
     
 if __name__ == "__main__":
     server = WebServer(www_dir='./public')
