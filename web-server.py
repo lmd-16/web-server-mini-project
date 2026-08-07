@@ -43,7 +43,11 @@ class WebServer:
                 client_thread.start()
                 print(f"Thread started for {client_address} (Active threads: {threading.active_count()})")
 
-                self.handle_client(client_socket, client_address)
+                # NOTE: previously there was also a direct call to
+                # self.handle_client(client_socket, client_address) here.
+                # That caused the SAME connection to be handled twice at
+                # once (once in the new thread, once in the main thread),
+                # racing on the same socket. The thread above is enough.
 
         except KeyboardInterrupt:
             print("\nShutting down server...")
@@ -150,7 +154,8 @@ class WebServer:
         if os.path.exists(error_file):
             with open(error_file, 'rb') as f: 
                 body = f.read().decode('utf-8')
-        # else:
+        else:
+            body = "<h1>404 Not Found</h1>"
             
         headers = {
             'Content-Type': 'text/html',
@@ -162,14 +167,14 @@ class WebServer:
     def handle_505(self, client_socket):
         status_code = 505
         status_message = "HTTP Version Not Supported"
-        body = self.read_error_page(505)
 
         error_file = os.path.join(self.www_dir, 'error_pages', '505.html')
 
         if os.path.exists(error_file):
             with open(error_file, 'rb') as f: 
                 body = f.read().decode('utf-8')
-        # else:
+        else:
+            body = "<h1>505 HTTP Version Not Supported</h1>"
 
         headers = {
             'Content-Type': 'text/html',
@@ -266,7 +271,7 @@ class WebServer:
         if 'Server' not in headers:
             headers['Server'] = 'WebServer/1.0'
         if 'Date' not in headers:
-            headers['Date'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+            headers['Date'] = datetime.datetime.now(datetime.timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
         for key, value in headers.items():
             response += f"{key}: {value}\r\n"
         response += "\r\n"
