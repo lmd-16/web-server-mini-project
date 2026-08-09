@@ -43,12 +43,6 @@ class WebServer:
                 client_thread.start()
                 print(f"Thread started for {client_address} (Active threads: {threading.active_count()})")
 
-                # NOTE: previously there was also a direct call to
-                # self.handle_client(client_socket, client_address) here.
-                # That caused the SAME connection to be handled twice at
-                # once (once in the new thread, once in the main thread),
-                # racing on the same socket. The thread above is enough.
-
         except KeyboardInterrupt:
             print("\nShutting down server...")
         except Exception as e: 
@@ -120,16 +114,20 @@ class WebServer:
         return method, path, version, headers, body
 
     def process_request(self,client_socket, method, path, version, headers, body):
+        if '..' in path or '../' in path or '/..' in path:
+            self.handle_403(client_socket)
+            return  
+        
         if path == '/':
             file_path = os.path.join(self.www_dir, 'index.html')
-        else: 
-            file_path = os.path.join(self.www_dir, path[1:])
+        else:
+            clean_path = path.lstrip('/')
+            file_path = os.path.join(self.www_dir, clean_path)
 
-        # 404 error
         if not os.path.exists(file_path):
             self.handle_404(client_socket)
-            return
-        
+            return        
+    
         # 403 error
         if not os.access(file_path, os.R_OK):
             self.handle_403(client_socket)
@@ -187,21 +185,21 @@ class WebServer:
     def handle_403(self, client_socket):
         status_code = 403
         status_message = "Forbidden"
-
+                
         error_file = os.path.join(self.www_dir, 'error_pages', '403.html')
-
+        
         if os.path.exists(error_file):
             with open(error_file, 'rb') as f: 
                 body = f.read().decode('utf-8')
         else:
             body = "<h1>403 Forbidden</h1>"
-
+        
         headers = {
             'Content-Type': 'text/html',
             'Content-Length': str(len(body)),
             'Connection': 'close'
         }
-
+        
         self.build_http_response(client_socket, status_code, status_message, headers, body)
 
     def handle_304(self, client_socket):
