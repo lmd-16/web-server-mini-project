@@ -6,6 +6,7 @@ import datetime
 import threading
 import time
 from email.utils import parsedate_to_datetime
+from urllib.parse import unquote, urlsplit
 
 class WebServer: 
     def __init__(self, host='localhost', port=8080, www_dir='./public'):
@@ -43,6 +44,7 @@ class WebServer:
                 client_thread.start()
                 print(f"Thread started for {client_address} (Active threads: {threading.active_count()})")
 
+
         except KeyboardInterrupt:
             print("\nShutting down server...")
         except Exception as e: 
@@ -56,9 +58,6 @@ class WebServer:
             os.makedirs(self.www_dir)
             print(f"Created directory: {self.www_dir}")
 
-            # index_path = os.path.join(self.www_dir, 'index.html')
-        
-            
     def handle_client(self, client_socket, client_address):
         try:
             raw_data = client_socket.recv(4096).decode('utf-8', errors='ignore')
@@ -114,20 +113,25 @@ class WebServer:
         return method, path, version, headers, body
 
     def process_request(self,client_socket, method, path, version, headers, body):
-        if '..' in path or '../' in path or '/..' in path:
-            self.handle_403(client_socket)
-            return  
-        
-        if path == '/':
-            file_path = os.path.join(self.www_dir, 'index.html')
-        else:
-            clean_path = path.lstrip('/')
-            file_path = os.path.join(self.www_dir, clean_path)
+        request_path = unquote(urlsplit(path).path)
+        relative_path = 'index.html' if request_path == '/' else request_path.lstrip('/')
+        root_path = os.path.realpath(self.www_dir)
+        file_path = os.path.realpath(os.path.join(root_path, relative_path))
 
-        if not os.path.exists(file_path):
+        try:
+            inside_root = os.path.commonpath([root_path, file_path]) == root_path
+        except ValueError:
+            inside_root = False
+
+        if not inside_root:
+            self.handle_403(client_socket)
+            return
+
+        # 404 error
+        if not os.path.isfile(file_path):
             self.handle_404(client_socket)
-            return        
-    
+            return
+        
         # 403 error
         if not os.access(file_path, os.R_OK):
             self.handle_403(client_socket)
@@ -185,21 +189,21 @@ class WebServer:
     def handle_403(self, client_socket):
         status_code = 403
         status_message = "Forbidden"
-                
+
         error_file = os.path.join(self.www_dir, 'error_pages', '403.html')
-        
+
         if os.path.exists(error_file):
             with open(error_file, 'rb') as f: 
                 body = f.read().decode('utf-8')
         else:
             body = "<h1>403 Forbidden</h1>"
-        
+
         headers = {
             'Content-Type': 'text/html',
             'Content-Length': str(len(body)),
             'Connection': 'close'
         }
-        
+
         self.build_http_response(client_socket, status_code, status_message, headers, body)
 
     def handle_304(self, client_socket):
@@ -216,9 +220,6 @@ class WebServer:
     def send_file_response(self, client_socket, file_path):
         status_code = 200
         status_message = "OK"
-
-        with open(file_path, 'rb') as f:
-            body = f.read()
 
         ext = os.path.splitext(file_path)[1].lower()
         if ext == '.html' or ext == '.htm':
@@ -239,13 +240,25 @@ class WebServer:
             content_type = 'application/octet-stream'        
 
 
-        headers = {
-            'Content-Type': content_type,
-            'Content-Length': str(len(body)),
-            'Connection': 'close'
-        }
-
-        self.build_http_response(client_socket, status_code, status_message, headers, body)
+        file_size = os.path.getsize(file_path)
+        if file_size > self.USE_CHUNKED_THRESHOLD:
+            headers = {
+                'Content-Type': content_type,
+                'Transfer-Encoding': 'chunked',
+                'Connection': 'close'
+            }
+            self.build_http_response(client_socket, status_code, status_message, headers)
+            with open(file_path, 'rb') as file_handle:
+                self.send_file_chunked(client_socket, file_path, file_handle)
+        else:
+            with open(file_path, 'rb') as f:
+                body = f.read()
+            headers = {
+                'Content-Type': content_type,
+                'Content-Length': str(len(body)),
+                'Connection': 'close'
+            }
+            self.build_http_response(client_socket, status_code, status_message, headers, body)
 
     def send_file_chunked(self, client_socket, file_path, file_handle):
         chunk_size = 8192 #8KB chunks
@@ -254,10 +267,10 @@ class WebServer:
                 chunk = file_handle.read(chunk_size)
                 if not chunk:
                     break
-                client_socket.send(f"{len(chunk):X}\r\n".encode())
-                client_socket.send(chunk)
-                client_socket.send(b'\r\n')
-            client_socket.send(b'0\r\n\r\n')
+                client_socket.sendall(f"{len(chunk):X}\r\n".encode())
+                client_socket.sendall(chunk)
+                client_socket.sendall(b'\r\n')
+            client_socket.sendall(b'0\r\n\r\n')
             return True
         except Exception as e:
             print(f"Error sending chunked file {file_path}: {e}")
@@ -274,13 +287,13 @@ class WebServer:
             response += f"{key}: {value}\r\n"
         response += "\r\n"
         try:
-            client_socket.send(response.encode('utf-8'))
+            client_socket.sendall(response.encode('utf-8'))
 
             if body: 
                 if isinstance(body,bytes):
-                    client_socket.send(body)
+                    client_socket.sendall(body)
                 else:
-                    client_socket.send(body.encode('utf-8'))
+                    client_socket.sendall(body.encode('utf-8'))
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as e:
